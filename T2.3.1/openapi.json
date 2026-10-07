@@ -1,0 +1,3040 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "WRP Registration API",
+    "version": "0.4.0",
+    "description": "API of the Wallet-Relying-Party (WRP) Registration backend of the\nEUDI Wallet. The backend implements the roles \"Registration Service\"\nand \"Registrar\" of the APTITUDE Onboarding Process.\n\nRepresentatives of Organizations that participate in APTITUDE\nregister, log in via the OIDC service (Keycloak), create or join an\nOrganization, and submit applications to publish, edit, or revoke WRP\nregistration records. Applications are reviewed by the Registrar\nusing CLI tools that are not part of this API. Non-logged-in users\ncan read the published Register.\n\n## Public Register (APTITUDE Common Register API)\n\nThe public read methods conform to the APTITUDE Common Register API:\n`GET /wrp`, `GET /wrp/{identifier}` and `GET /wrp/check-intended-use`.\nTheir parameters, payload schemas and responses are taken from the\nAPTITUDE Register API OpenAPI specification (version 1.0.0).\nResponses are JWS-signed statements (`application/jwt`), signed or\nsealed by the Registrar; the signing certificate chain is carried in\nthe JWS `x5c` header. For convenience (e.g. for the registration\nportal), the same payload is returned unsigned when the client sends\n`Accept: application/json`. The write methods of the Common Register\nAPI are not offered: registration records change only through\napplications accepted by the Registrar.\n\n## Register data (APTITUDE Register Data Schema)\n\nRegistration records follow the APTITUDE Register Data Schema\n(`WalletRelyingParty`). The following data is provided by the\nRegistrar on acceptance, not by the applicant: `registryURI`, and the\n`intendedUseIdentifier` and `createdAt` of new intended uses (and\n`revokedAt` of ended ones). Published records additionally carry the\nextension properties `wrpId`, `organizationId` and\n`registrationCertificates`; `postalAddress` is excluded from\npublished statements.\n\nThe **WRP ID** is the value of one of the record's identifiers\n(`identifier`), preferably the EUID where available. The applicant\nstates it when applying to publish a record, it cannot be removed or\nchanged by edits, and it is the `{identifier}` / `rpidentifier` used\nto look the record up in the Common Register API.\n\n## Registration certificates\n\nRegistration certificates (WRPRCs) are issued and revoked by the\nProvider of WRPRC, not by this backend: one per intended use, only for\nWRPs that are legal persons and where a WRPRC is required (CIR\n2025/848, Article 8). They are issued after the create/edit\napplication is accepted, so that they carry the intended-use\nidentifiers assigned by the Register, and are then recorded by the\nRegistrar. Recorded certificates, including revoked ones, are visible\nin the published record (`registrationCertificates`) and in the\nOrganization's view of its records.\n\n## Authentication\n\nAll endpoints require an OIDC access token, except for:\n\n* the public endpoints of the Common Register API (`/wrp...`)\n* `POST /representatives` (registration)\n* `POST /codes/validate` (validation of registration, email-change,\n  and invitation codes)\n\nPublic endpoints are rate-limited. On every authenticated request the\naccess token is introspected, and the database is consulted to ensure\nthat the Representative is not deactivated and, where relevant, is a\nmember of the Organization.\n"
+  },
+  "servers": [
+    {
+      "url": "https://registry.example.org/api/v1",
+      "description": "Placeholder deployment URL"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Register",
+      "description": "Public read access to the published Register (APTITUDE Common Register API)."
+    },
+    {
+      "name": "Representatives",
+      "description": "Registration, email validation and profile management."
+    },
+    {
+      "name": "Organizations",
+      "description": "Organization creation, editing and invitations."
+    },
+    {
+      "name": "Applications",
+      "description": "Applications to create, edit or revoke public WRP registration records."
+    }
+  ],
+  "security": [
+    {
+      "oidc": []
+    }
+  ],
+  "paths": {
+    "/wrp": {
+      "get": {
+        "tags": [
+          "Register"
+        ],
+        "summary": "Search or list the published Register",
+        "description": "APTITUDE Common Register API search/list. Returns the published registration records matching all given filters; without filters, all published records. Parameters marked as extensions are not part of the APTITUDE Common Register API.",
+        "operationId": "searchRegister",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/identifierQuery"
+          },
+          {
+            "$ref": "#/components/parameters/legalnameQuery"
+          },
+          {
+            "$ref": "#/components/parameters/tradenameQuery"
+          },
+          {
+            "$ref": "#/components/parameters/policyQuery"
+          },
+          {
+            "$ref": "#/components/parameters/entitlementQuery"
+          },
+          {
+            "$ref": "#/components/parameters/usesintermediaryQuery"
+          },
+          {
+            "$ref": "#/components/parameters/isintermediaryQuery"
+          },
+          {
+            "$ref": "#/components/parameters/intendeduseidentifierQuery"
+          },
+          {
+            "$ref": "#/components/parameters/claimpathQuery"
+          },
+          {
+            "$ref": "#/components/parameters/credentialmetaQuery"
+          },
+          {
+            "$ref": "#/components/parameters/credentialformatQuery"
+          },
+          {
+            "$ref": "#/components/parameters/cursorQuery"
+          },
+          {
+            "$ref": "#/components/parameters/limitQuery"
+          },
+          {
+            "$ref": "#/components/parameters/providesattestationQuery"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Extension: free-text search over names, trade names, service descriptions and purposes."
+          },
+          {
+            "name": "organizationid",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Extension: filter by the Organization ID recorded in records."
+          },
+          {
+            "name": "country",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^([A-Z]{2}|EU)$"
+            },
+            "description": "Extension: filter by country."
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JwsWrpArrayResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/RegisterBadRequest"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": []
+      }
+    },
+    "/wrp/{identifier}": {
+      "get": {
+        "tags": [
+          "Register"
+        ],
+        "summary": "Get a published registration record",
+        "description": "Returns the published registration record whose WRP ID is `identifier`.",
+        "operationId": "getRegistrationRecord",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/identifierPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JwsWrpResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/RegisterNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": []
+      }
+    },
+    "/wrp/check-intended-use": {
+      "get": {
+        "tags": [
+          "Register"
+        ],
+        "summary": "Check a registered intended use",
+        "description": "APTITUDE Common Register API intended-use check. The signed payload `data` is true if the given parameters match a currently valid intended use of the published registration record whose WRP ID is `rpidentifier`.",
+        "operationId": "checkIntendedUse",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/rpidentifierQuery"
+          },
+          {
+            "$ref": "#/components/parameters/intendeduseidentifierQuery"
+          },
+          {
+            "$ref": "#/components/parameters/claimpathQuery"
+          },
+          {
+            "$ref": "#/components/parameters/credentialformatQuery"
+          },
+          {
+            "$ref": "#/components/parameters/credentialmetaQuery"
+          },
+          {
+            "$ref": "#/components/parameters/policyurlQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JwsBooleanResponse"
+          },
+          "400": {
+            "$ref": "#/components/responses/RegisterBadRequest"
+          },
+          "404": {
+            "description": "WRP with the given rpidentifier not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterError"
+                },
+                "example": {
+                  "message": "WRP with the given rpidentifier was not found."
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": []
+      }
+    },
+    "/representatives": {
+      "post": {
+        "tags": [
+          "Representatives"
+        ],
+        "operationId": "registerRepresentative",
+        "summary": "Register a Representative",
+        "description": "Registers a human Representative. The Representative is created in\nthe authentication service, and a validation code is sent to the\ngiven email address. Login is possible after the code has been\nvalidated via `POST /codes/validate`.\n",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepresentativeRegistration"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Registration accepted; a validation code was emailed."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "description": "A Representative with this email address already exists.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/codes/validate": {
+      "post": {
+        "tags": [
+          "Representatives"
+        ],
+        "operationId": "validateCode",
+        "summary": "Validate an emailed code",
+        "description": "Validates a code sent by email. Depending on the code, this:\n\n* completes registration by validating the email address;\n* completes an email address change (the new address replaces the\n  old one in both the authentication service and the database);\n* accepts an invitation, making the invited Representative a\n  member of the Organization. This fails if the invited\n  Representative already belongs to an Organization.\n\nCodes are single-use, hard to guess, expire after 2 days, and\ninvitation codes are bound to the invited Representative.\n",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The code was valid and its action was applied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeValidationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The code is invalid, expired or already used.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Invitation code only: the invited Representative already\nbelongs to an Organization.\n",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "tags": [
+          "Representatives"
+        ],
+        "operationId": "getProfile",
+        "summary": "Get the profile of the logged-in Representative",
+        "description": "Returns the Representative's data, their Organization (if any),\nthe state of all Organization applications, and the published\nregistration records that the Organization controls.\n",
+        "responses": {
+          "200": {
+            "description": "The profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profile"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Representatives"
+        ],
+        "operationId": "updateRepresentative",
+        "summary": "Edit the Representative data",
+        "description": "Edits the first/last name and/or email address. Name changes are\napplied to the authentication service and the database. An email\nchange is not applied immediately: a validation code is sent to the\nnew address, which is reported as `pendingEmail` until validated via\n`POST /codes/validate`. The old address stays in use until then.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/merge-patch+json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepresentativeUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated Representative data.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Representative"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "The new email address is already in use.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organizations": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "createOrganization",
+        "summary": "Create an Organization",
+        "description": "Creates a new Organization and makes the logged-in Representative\nits member. Only possible if the Representative does not yet\nbelong to an Organization. The Organization ID must be unique\nagainst all Organization IDs and all Organization IDs included in\npublished WRP registration records.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Organization"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The Organization was created.",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the Representative's Organization."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organization"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "The Representative already belongs to an Organization, or the\nOrganization ID is already in use.\n",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organization": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "getOrganization",
+        "summary": "Get the Representative's Organization",
+        "responses": {
+          "200": {
+            "description": "The Organization.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "The Representative does not belong to an Organization.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "updateOrganization",
+        "summary": "Edit the Representative's Organization",
+        "description": "Edits the Organization data without external review. This only\naffects internal bookkeeping; published WRP registration records are not\nchanged. A new Organization ID must be unique against all other\nOrganization IDs and all Organization IDs in WRP registration records published\nby other Organizations. All Representatives of the Organization are\nnotified by email.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/merge-patch+json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrganizationUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated Organization.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "The Representative does not belong to an Organization.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The new Organization ID is already in use.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organization/invitations": {
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "inviteRepresentative",
+        "summary": "Invite a Representative to the Organization",
+        "description": "Sends an invitation code by email to a registered Representative\nwho does not belong to an Organization. The code is accepted via\n`POST /codes/validate`.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The invitation was sent."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "No registered Representative has this email address.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The invited Representative already belongs to an Organization.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organization/applications": {
+      "get": {
+        "tags": [
+          "Applications"
+        ],
+        "operationId": "listApplications",
+        "summary": "List the Organization's applications",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ApplicationState"
+            }
+          },
+          {
+            "name": "intent",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ApplicationIntent"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Organization's applications.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Applications"
+        ],
+        "operationId": "submitApplication",
+        "summary": "Submit an application",
+        "description": "Submits an application on behalf of the Representative's\nOrganization. The application is created at state `pending` and\nis tied to the Organization. All Representatives of the\nOrganization are notified by email. Only applications of\nOrganizations that participate in APTITUDE are accepted by the\nRegistrar.\n\n* `create`: applies to publish a new registration record. `wrpId`\n  must equal the value of one of `data.identifier`, and must not be\n  the WRP ID of any published registration record.\n* `edit`: replaces the data of a published registration record\n  controlled by the Organization. The WRP ID cannot be changed or\n  removed from `data.identifier`. Intended uses that carry an\n  existing `intendedUseIdentifier` are kept; intended uses without\n  one are new; existing intended uses left out are ended (they get a\n  `revokedAt` date and remain in the record).\n* `revoke`: applies to remove a published registration record\n  controlled by the Organization from the Register.\n\nOn acceptance, the Registrar-provided data is added: `registryURI`,\nand `intendedUseIdentifier` and `createdAt` for new intended uses.\nRegistration certificates are issued afterwards by the Provider of\nWRPRC and recorded by the Registrar.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The application was created at state `pending`.",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "URL of the new application."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "`edit`/`revoke` only: no published registration record with this WRP ID is controlled by the Organization.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`create` only: a published registration record with this WRP ID already exists.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organization/applications/{applicationId}": {
+      "get": {
+        "tags": [
+          "Applications"
+        ],
+        "operationId": "getApplication",
+        "summary": "Get an application of the Organization",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApplicationIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/organization/applications/{applicationId}/withdraw": {
+      "post": {
+        "tags": [
+          "Applications"
+        ],
+        "operationId": "withdrawApplication",
+        "summary": "Withdraw a pending application",
+        "description": "Transitions a pending application of the Organization to state\n`withdrawn`. No further transitions are possible. All\nRepresentatives of the Organization are notified by email.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApplicationIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The withdrawn application.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "The application is not in state `pending`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/organization/records": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "operationId": "listControlledRecords",
+        "summary": "List the published registration records the Organization controls",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Offset"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Published registration records controlled by the Organization.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationRecordPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "oidc": {
+        "type": "openIdConnect",
+        "description": "OIDC access token issued by Keycloak (lifetime ~10 minutes), sent\nas `Authorization: Bearer <token>`.\n",
+        "openIdConnectUrl": "https://auth.example.org/realms/wrp-registry/.well-known/openid-configuration"
+      }
+    },
+    "parameters": {
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "description": "Maximum number of items to return.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50
+        }
+      },
+      "Offset": {
+        "name": "offset",
+        "in": "query",
+        "description": "Number of items to skip.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "ApplicationIdPath": {
+        "name": "applicationId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "identifierQuery": {
+        "name": "identifier",
+        "in": "query",
+        "description": "Filter by official or business registration identifier.",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "legalnameQuery": {
+        "name": "legalname",
+        "in": "query",
+        "description": "Filter by official company name.",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "tradenameQuery": {
+        "name": "tradename",
+        "in": "query",
+        "description": "Filter by trade name.",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "policyQuery": {
+        "name": "policy",
+        "in": "query",
+        "description": "Filter by privacy policy URL or policy URI as profiled.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "entitlementQuery": {
+        "name": "entitlement",
+        "in": "query",
+        "description": "Filter by entitlement type URI.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "usesintermediaryQuery": {
+        "name": "usesintermediary",
+        "in": "query",
+        "description": "Filter by intermediary identifier.",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "isintermediaryQuery": {
+        "name": "isintermediary",
+        "in": "query",
+        "description": "Filter by intermediary status.",
+        "required": false,
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "intendeduseidentifierQuery": {
+        "name": "intendeduseidentifier",
+        "in": "query",
+        "description": "Filter by registrar-provided intended-use identifier.",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "claimpathQuery": {
+        "name": "claimpath",
+        "in": "query",
+        "description": "Filter by intended-use requested claim path using a profile-defined serialized representation.",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "credentialmetaQuery": {
+        "name": "credentialmeta",
+        "in": "query",
+        "description": "Filter by credential metadata using a profile-defined serialization.",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "credentialformatQuery": {
+        "name": "credentialformat",
+        "in": "query",
+        "description": "Filter by credential format.",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "cursorQuery": {
+        "name": "cursor",
+        "in": "query",
+        "description": "Cursor for pagination.",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "limitQuery": {
+        "name": "limit",
+        "in": "query",
+        "description": "Maximum number of items to return per page.",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "providesattestationQuery": {
+        "name": "providesattestation",
+        "in": "query",
+        "description": "Filter by attestation types provided.",
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Credential"
+            },
+            "example": {
+              "format": "dc+sd-jwt",
+              "meta": {
+                "vct_values": [
+                  "https://examplebank.eu/schema/bank-account"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "rpidentifierQuery": {
+        "name": "rpidentifier",
+        "in": "query",
+        "description": "Identifier of the WRP whose intended-use registration is being checked.",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "policyurlQuery": {
+        "name": "policyurl",
+        "in": "query",
+        "description": "Privacy policy URL to check for the identified WRP.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "identifierPath": {
+        "name": "identifier",
+        "in": "path",
+        "description": "The WRP ID of the registration record (URL-encoded).",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "The request is malformed or fails validation.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "The access token is missing, invalid or expired.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "The Representative is deactivated, or is not a member of the\nOrganization required by the operation.\n",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "The resource does not exist or is not visible to the caller.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "Rate limit exceeded.",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Seconds to wait before retrying."
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "JwsWrpArrayResponse": {
+        "description": "JWS-signed list of matching Wallet-Relying Party entries, serialized as an application/jwt JWS compact string. Once decoded and signature-verified, the JWT payload conforms to the SignedWRPArray schema defined in the components block: an array of WalletRelyingParty objects matching the query (postalAddress excluded from each published entry), plus issuer/timestamp metadata and cursor-based pagination. Where relevant, the associated WRPAC/WRPRC history MAY be carried per the Member State profile.",
+        "headers": {
+          "X-Next-Cursor": {
+            "description": "Convenience mirror of the signed pagination.next_cursor value inside the payload: cursor to pass as the cursor query parameter on the next GET /wrp request. Absent on the last page.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/jwt": {
+            "schema": {
+              "type": "string",
+              "description": "A JWS-signed JWT in compact serialization format. The JWT payload, once decoded and verified, conforms to the SignedWRPArray schema defined in the components block of this specification."
+            },
+            "example": "eyJhbGciOiJFUzI1NiIsImtpZCI6InJlZ2lzdHJhci0xIn0.eyJpc3MiOiJyZWdpc3RyYXItMSIsImlhdCI6MTc2NzIyNTYwMCwiZGF0YSI6W119.c2lnbmF0dXJl"
+          },
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SignedWRPArray"
+            }
+          }
+        }
+      },
+      "JwsBooleanResponse": {
+        "description": "JWS compact string containing a signed intended-use check result.",
+        "content": {
+          "application/jwt": {
+            "schema": {
+              "type": "string",
+              "description": "A JWS-signed JWT in compact serialization format. The JWT payload, once decoded and verified, conforms to the SignedIntendedUseCheckResult schema defined in the components block of this specification."
+            },
+            "example": "eyJhbGciOiJFUzI1NiIsImtpZCI6InJlZ2lzdHJhci0xIn0.eyJpc3MiOiJyZWdpc3RyYXItMSIsImlhdCI6MTc2NzIyNTYwMCwiZGF0YSI6dHJ1ZX0.c2lnbmF0dXJl"
+          },
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SignedIntendedUseCheckResult"
+            }
+          }
+        }
+      },
+      "JwsWrpResponse": {
+        "description": "JWS compact string containing a signed payload with a single WRP registration record.",
+        "content": {
+          "application/jwt": {
+            "schema": {
+              "type": "string",
+              "description": "A JWS-signed JWT in compact serialization format. The JWT payload, once decoded and verified, conforms to the SignedWRP schema defined in the components block of this specification."
+            },
+            "example": "eyJhbGciOiJFUzI1NiIsImtpZCI6InJlZ2lzdHJhci0xIn0.eyJpc3MiOiJyZWdpc3RyYXItMSIsImlhdCI6MTc2NzIyNTYwMCwiZGF0YSI6ey4uLn19.c2lnbmF0dXJl"
+          },
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SignedWRP"
+            }
+          }
+        }
+      },
+      "RegisterBadRequest": {
+        "description": "Bad request.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RegisterError"
+            },
+            "example": {
+              "message": "Request payload or parameters invalid or incomplete."
+            }
+          }
+        }
+      },
+      "RegisterNotFound": {
+        "description": "Not Found.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RegisterError"
+            },
+            "example": {
+              "message": "Requested Wallet-Relying Party was not found."
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "description": "Error details (RFC 9457).",
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          }
+        }
+      },
+      "RepresentativeRegistration": {
+        "type": "object",
+        "required": [
+          "email",
+          "firstName",
+          "lastName",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "firstName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lastName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true,
+            "description": "Initial password, stored only in the authentication service."
+          }
+        }
+      },
+      "Representative": {
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "firstName",
+          "lastName"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "The validated email address currently in use."
+          },
+          "pendingEmail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "email",
+            "readOnly": true,
+            "description": "A new email address awaiting validation, if any."
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          }
+        }
+      },
+      "RepresentativeUpdate": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "firstName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lastName": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "CodeValidationResult": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "registration",
+              "emailChange",
+              "invitation"
+            ]
+          },
+          "organizationId": {
+            "type": "string",
+            "description": "For invitations, the ID of the joined Organization."
+          }
+        }
+      },
+      "Organization": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Globally-unique Organization ID, supplied by the Representative.\nThe format is out of the scope of this API.\n"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "address": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "website": {
+            "type": "string",
+            "format": "uri"
+          },
+          "contactEmail": {
+            "type": "string",
+            "format": "email"
+          }
+        }
+      },
+      "OrganizationDetails": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Organization"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "members": {
+                "type": "array",
+                "readOnly": true,
+                "items": {
+                  "$ref": "#/components/schemas/Member"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "OrganizationUpdate": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "address": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "website": {
+            "type": "string",
+            "format": "uri"
+          },
+          "contactEmail": {
+            "type": "string",
+            "format": "email"
+          }
+        }
+      },
+      "Member": {
+        "type": "object",
+        "required": [
+          "id",
+          "firstName",
+          "lastName",
+          "email",
+          "active"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "False if the Representative account is deactivated."
+          }
+        }
+      },
+      "Profile": {
+        "type": "object",
+        "required": [
+          "representative",
+          "applications",
+          "controlledRecords"
+        ],
+        "properties": {
+          "representative": {
+            "$ref": "#/components/schemas/Representative"
+          },
+          "organization": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Organization"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "applications": {
+            "type": "array",
+            "description": "All applications of the Organization.",
+            "items": {
+              "$ref": "#/components/schemas/Application"
+            }
+          },
+          "controlledRecords": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RegistrationRecord"
+            },
+            "description": "Published registration records controlled by the Organization."
+          }
+        }
+      },
+      "ApplicationIntent": {
+        "type": "string",
+        "enum": [
+          "create",
+          "edit",
+          "revoke"
+        ]
+      },
+      "ApplicationState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "accepted",
+          "rejected",
+          "withdrawn"
+        ]
+      },
+      "ApplicationRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CreateApplicationRequest"
+          },
+          {
+            "$ref": "#/components/schemas/EditApplicationRequest"
+          },
+          {
+            "$ref": "#/components/schemas/RevokeApplicationRequest"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "create": "#/components/schemas/CreateApplicationRequest",
+            "edit": "#/components/schemas/EditApplicationRequest",
+            "revoke": "#/components/schemas/RevokeApplicationRequest"
+          }
+        }
+      },
+      "CreateApplicationRequest": {
+        "type": "object",
+        "required": [
+          "intent",
+          "wrpId",
+          "data"
+        ],
+        "properties": {
+          "intent": {
+            "const": "create"
+          },
+          "wrpId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The WRP ID: must equal the `identifier` value of one of the entries in `data.identifier`, preferably the EUID. Cannot be changed later."
+          },
+          "data": {
+            "$ref": "#/components/schemas/WalletRelyingPartySubmission"
+          }
+        }
+      },
+      "EditApplicationRequest": {
+        "type": "object",
+        "required": [
+          "intent",
+          "wrpId",
+          "data"
+        ],
+        "properties": {
+          "intent": {
+            "const": "edit"
+          },
+          "wrpId": {
+            "type": "string",
+            "description": "The WRP ID of the published record to edit. `data.identifier` must still contain it."
+          },
+          "data": {
+            "$ref": "#/components/schemas/WalletRelyingPartySubmission",
+            "description": "The complete new data."
+          }
+        }
+      },
+      "RevokeApplicationRequest": {
+        "type": "object",
+        "required": [
+          "intent",
+          "wrpId"
+        ],
+        "properties": {
+          "intent": {
+            "const": "revoke"
+          },
+          "wrpId": {
+            "type": "string",
+            "description": "The WRP ID of the published record to revoke."
+          }
+        }
+      },
+      "Application": {
+        "type": "object",
+        "required": [
+          "id",
+          "intent",
+          "state",
+          "wrpId",
+          "submittedBy",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "intent": {
+            "$ref": "#/components/schemas/ApplicationIntent"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ApplicationState"
+          },
+          "wrpId": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WalletRelyingPartySubmission",
+            "description": "The submitted registration record data (`create` and `edit` only)."
+          },
+          "submittedBy": {
+            "type": "string",
+            "format": "uuid",
+            "description": "ID of the Representative who submitted the application."
+          },
+          "rejectionReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when the state is `rejected`."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "history": {
+            "type": "array",
+            "description": "Logged state transitions of the application.",
+            "items": {
+              "$ref": "#/components/schemas/StateTransition"
+            }
+          },
+          "submittedByName": {
+            "type": "string",
+            "description": "Name of the submitting Representative, recorded at submission (stays available if they later leave the Organization)."
+          }
+        }
+      },
+      "StateTransition": {
+        "type": "object",
+        "required": [
+          "to",
+          "at",
+          "by"
+        ],
+        "properties": {
+          "from": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ApplicationState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to": {
+            "$ref": "#/components/schemas/ApplicationState"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "by": {
+            "type": "string",
+            "enum": [
+              "representative",
+              "registrar"
+            ]
+          }
+        }
+      },
+      "ApplicationPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Application"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      },
+      "Address": {
+        "type": "object",
+        "properties": {
+          "street": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "postalCode": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          }
+        }
+      },
+      "RegistrationCertificate": {
+        "type": "object",
+        "readOnly": true,
+        "required": [
+          "intendedUseIdentifier",
+          "format",
+          "value",
+          "issuedAt",
+          "status"
+        ],
+        "description": "A WRP registration certificate (WRPRC) issued by the Provider of WRPRC for one intended use and recorded by the Registrar. Extension to the APTITUDE Register Data Schema (the Common Register API allows WRPRC history to accompany published entries).",
+        "properties": {
+          "intendedUseIdentifier": {
+            "type": "string",
+            "description": "The intended use the certificate is issued for."
+          },
+          "certificateIdentifier": {
+            "type": "string",
+            "description": "Identifier of the certificate, if any."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "jwt",
+              "cwt"
+            ],
+            "description": "`jwt`: JWS compact serialization; `cwt`: base64url-encoded CBOR Web Token."
+          },
+          "value": {
+            "type": "string",
+            "description": "The encoded certificate."
+          },
+          "issuedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "valid",
+              "revoked"
+            ]
+          },
+          "revokedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SignedWRPArray": {
+        "type": "object",
+        "description": "Decoded payload of the application/jwt response for GET /wrp. This models the signed JWT payload (the response body itself is the application/jwt JWS compact string). It mirrors the SignedWRPArrayEnvelope profile of the registry specification and the SignedWRPArray schema of the EUDI harmonised registrar API (TS5).",
+        "required": [
+          "iss",
+          "iat",
+          "data"
+        ],
+        "properties": {
+          "iss": {
+            "type": "string",
+            "description": "Issuer, the identifier of the Registry/Registrar issuing the statement."
+          },
+          "iat": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Issued-at timestamp (Unix epoch seconds) at which the JWT was issued."
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of WalletRelyingParty objects matching the query (published view, postalAddress excluded). Where the Member State profile provides it, each entry MAY be accompanied by its WRPAC/WRPRC certificate history.",
+            "items": {
+              "$ref": "#/components/schemas/PublishedWalletRelyingParty"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        },
+        "examples": [
+          {
+            "iss": "https://registry.example.eu",
+            "iat": 1767225600,
+            "data": [],
+            "pagination": {
+              "next_cursor": "eyJvZmZzZXQiOjIwfQ",
+              "has_next_page": true
+            }
+          }
+        ]
+      },
+      "SignedWRP": {
+        "type": "object",
+        "description": "Decoded payload of the application/jwt response for GET /wrp/{identifier}. It mirrors the SignedWRPEnvelope profile of the registry specification and the SignedWRP schema of the EUDI harmonised registrar API (TS5).",
+        "required": [
+          "iss",
+          "iat",
+          "data"
+        ],
+        "properties": {
+          "iss": {
+            "type": "string",
+            "description": "Issuer, the identifier of the Registry/Registrar issuing the statement."
+          },
+          "iat": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Issued-at timestamp (Unix epoch seconds) at which the JWT was issued."
+          },
+          "data": {
+            "$ref": "#/components/schemas/PublishedWalletRelyingParty"
+          }
+        }
+      },
+      "SignedIntendedUseCheckResult": {
+        "type": "object",
+        "description": "Decoded payload of the application/jwt response for GET /wrp/check-intended-use. It mirrors the SignedIntendedUseCheckEnvelope profile of the registry specification (and corresponds to the SignedIntendedUseCheckResult schema of the EUDI harmonised registrar API, TS5). Per Annex VI the check result is a signed boolean; a Member State profile MAY instead carry the richer TS5 object form (isRegistered plus optional details).",
+        "required": [
+          "iss",
+          "iat",
+          "data"
+        ],
+        "properties": {
+          "iss": {
+            "type": "string",
+            "description": "Issuer, the identifier of the Registry."
+          },
+          "iat": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Issued-at timestamp (Unix epoch seconds) at which the JWT was issued."
+          },
+          "data": {
+            "type": "boolean",
+            "description": "Result of the intended-use check: true if the queried intended-use identifier, credential/claim or privacy policy is registered for the Wallet Relying Party's intended use, false otherwise."
+          }
+        },
+        "examples": [
+          {
+            "iss": "https://registry.example.eu",
+            "iat": 1767225600,
+            "data": true
+          }
+        ]
+      },
+      "Pagination": {
+        "type": "object",
+        "description": "Cursor-based pagination metadata carried inside the signed SignedWRPArray payload.",
+        "properties": {
+          "next_cursor": {
+            "type": "string",
+            "description": "Cursor to use to fetch the next page of results. Absent or null on the last page."
+          },
+          "has_next_page": {
+            "type": "boolean",
+            "description": "Whether there is a further page of results."
+          }
+        },
+        "examples": [
+          {
+            "next_cursor": "eyJvZmZzZXQiOjIwfQ",
+            "has_next_page": true
+          }
+        ]
+      },
+      "WalletRelyingParty": {
+        "type": "object",
+        "description": "Wallet-Relying Party registration object. In published API statements, postalAddress is excluded.",
+        "properties": {
+          "legalPerson": {
+            "$ref": "#/components/schemas/LegalPerson"
+          },
+          "naturalPerson": {
+            "$ref": "#/components/schemas/NaturalPerson"
+          },
+          "identifier": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "postalAddress": {
+            "type": "array",
+            "description": "Postal addresses of the legal entity. Registration view only; excluded from published API statements.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code, or EU for providers operating in the Union.",
+            "pattern": "^([A-Z]{2}|EU)$"
+          },
+          "email": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "phone": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "examples": [
+                "+33100000000"
+              ]
+            }
+          },
+          "infoURI": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "providerType": {
+            "type": "string",
+            "description": "Provider subtype. For WRP records, typically WalletRelyingParty.",
+            "examples": [
+              "WalletRelyingParty"
+            ]
+          },
+          "policy": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Policy"
+            }
+          },
+          "x5c": {
+            "type": "array",
+            "description": "X.509 certificate chains for provider services.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tradeName": {
+            "type": "string"
+          },
+          "supportURI": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "srvDescription": {
+            "type": "array",
+            "description": "Array of service descriptions, each being an array of localized strings.",
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/MultiLangString"
+              }
+            }
+          },
+          "intendedUse": {
+            "type": "array",
+            "description": "Required if the entity is not an intermediary.",
+            "items": {
+              "$ref": "#/components/schemas/IntendedUse"
+            }
+          },
+          "isPSB": {
+            "type": "boolean",
+            "description": "Whether the WRP is a public sector body."
+          },
+          "entitlement": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "providesAttestations": {
+            "type": "array",
+            "description": "Required if the entity is a PID or attestation provider.",
+            "items": {
+              "$ref": "#/components/schemas/Credential"
+            }
+          },
+          "supervisoryAuthority": {
+            "$ref": "#/components/schemas/LegalEntity"
+          },
+          "registryURI": {
+            "type": "string",
+            "format": "uri",
+            "description": "URI of the API of the national register of WRPs."
+          },
+          "usesIntermediary": {
+            "type": "array",
+            "description": "If present, indicates designated intermediary entries. Only the subset identifier, tradeName, and registryURI is needed for each entry.",
+            "items": {
+              "$ref": "#/components/schemas/WalletRelyingPartyIntermediary"
+            }
+          },
+          "isIntermediary": {
+            "type": "boolean",
+            "description": "Whether the registered entity is a designated intermediary. Shall be false if usesIntermediary is present."
+          }
+        },
+        "required": [
+          "identifier",
+          "country",
+          "providerType",
+          "policy",
+          "supportURI",
+          "srvDescription",
+          "isPSB",
+          "entitlement",
+          "supervisoryAuthority",
+          "registryURI",
+          "isIntermediary"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "legalPerson"
+            ]
+          },
+          {
+            "required": [
+              "naturalPerson"
+            ]
+          }
+        ],
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "isIntermediary"
+              ],
+              "properties": {
+                "isIntermediary": {
+                  "const": false
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "intendedUse"
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "entitlement"
+              ],
+              "properties": {
+                "entitlement": {
+                  "contains": {
+                    "enum": [
+                      "https://uri.etsi.org/19475/Entitlement/QEAA_Provider",
+                      "https://uri.etsi.org/19475/Entitlement/Non_Q_EAA_Provider",
+                      "https://uri.etsi.org/19475/Entitlement/PUB_EAA_Provider",
+                      "https://uri.etsi.org/19475/Entitlement/PID_Provider"
+                    ]
+                  }
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "providesAttestations"
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "usesIntermediary"
+              ]
+            },
+            "then": {
+              "properties": {
+                "isIntermediary": {
+                  "const": false
+                }
+              }
+            }
+          }
+        ],
+        "examples": [
+          {
+            "legalPerson": {
+              "legalName": [
+                "ShopExample N.V."
+              ]
+            },
+            "identifier": [
+              {
+                "type": "http://data.europa.eu/eudi/id/EUID",
+                "identifier": "NL-EUID-556677889"
+              }
+            ],
+            "postalAddress": [
+              "Damrak 50, 1012 LP Amsterdam, NL"
+            ],
+            "country": "NL",
+            "email": [
+              "wallet-rp@shopexample.example"
+            ],
+            "infoURI": [
+              "https://shopexample.example"
+            ],
+            "providerType": "WalletRelyingParty",
+            "policy": [
+              {
+                "type": "http://data.europa.eu/eudi/policy/terms-and-conditions",
+                "policyURI": "https://shopexample.example/terms"
+              },
+              {
+                "type": "http://data.europa.eu/eudi/policy/privacy-policy",
+                "policyURI": "https://shopexample.example/privacy"
+              }
+            ],
+            "tradeName": "ShopExample",
+            "supportURI": [
+              "https://shopexample.example/support"
+            ],
+            "srvDescription": [
+              [
+                {
+                  "lang": "en",
+                  "content": "Online retail services."
+                },
+                {
+                  "lang": "nl",
+                  "content": "Online detailhandel."
+                }
+              ]
+            ],
+            "intendedUse": [
+              {
+                "intendedUseIdentifier": "iu-age-verification",
+                "purpose": [
+                  {
+                    "lang": "en",
+                    "content": "Verify the customer is of legal age for restricted product purchases."
+                  }
+                ],
+                "privacyPolicy": [
+                  {
+                    "type": "http://data.europa.eu/eudi/policy/privacy-statement",
+                    "policyURI": "https://shopexample.example/privacy/wallet"
+                  }
+                ],
+                "credential": [
+                  {
+                    "format": "mso_mdoc",
+                    "meta": {
+                      "doctype_value": "org.iso.18013.5.1.mDL"
+                    },
+                    "claim": [
+                      {
+                        "path": [
+                          "org.iso.18013.5.1",
+                          "age_over_18"
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "createdAt": "2026-01-01"
+              }
+            ],
+            "isPSB": false,
+            "entitlement": [
+              "https://uri.etsi.org/19475/Entitlement/Service_Provider"
+            ],
+            "supervisoryAuthority": {
+              "legalPerson": {
+                "legalName": [
+                  "Autoriteit Persoonsgegevens"
+                ]
+              },
+              "country": "NL",
+              "infoURI": [
+                "https://autoriteitpersoonsgegevens.nl"
+              ]
+            },
+            "registryURI": "https://registry.example.nl/api",
+            "isIntermediary": false,
+            "usesIntermediary": [
+              {
+                "identifier": [
+                  {
+                    "type": "http://data.europa.eu/eudi/id/EUID",
+                    "identifier": "NL-EUID-112233445"
+                  }
+                ],
+                "tradeName": "TrustBridge",
+                "registryURI": "https://registry.example.nl/api"
+              }
+            ]
+          }
+        ]
+      },
+      "WalletRelyingPartyIntermediary": {
+        "type": "object",
+        "description": "Reference to a Wallet-Relying Party acting as a designated intermediary. Only the subset needed to identify and locate the intermediary is carried here (see the usesIntermediary note in the registry specification).",
+        "properties": {
+          "identifier": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "tradeName": {
+            "type": "string"
+          },
+          "registryURI": {
+            "type": "string",
+            "format": "uri",
+            "description": "URI of the API of the national register where the intermediary is registered."
+          }
+        },
+        "required": [
+          "identifier",
+          "tradeName",
+          "registryURI"
+        ],
+        "examples": [
+          {
+            "identifier": [
+              {
+                "type": "http://data.europa.eu/eudi/id/EUID",
+                "identifier": "NL-EUID-112233445"
+              }
+            ],
+            "tradeName": "TrustBridge",
+            "registryURI": "https://registry.example.nl/api"
+          }
+        ]
+      },
+      "Identifier": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "Identifier value of the legal entity."
+          },
+          "type": {
+            "type": "string",
+            "format": "uri",
+            "description": "Identifier scheme or type URI.",
+            "enum": [
+              "http://data.europa.eu/eudi/id/EORI-No",
+              "http://data.europa.eu/eudi/id/LEI",
+              "http://data.europa.eu/eudi/id/EUID",
+              "http://data.europa.eu/eudi/id/VATIN",
+              "http://data.europa.eu/eudi/id/TIN",
+              "http://data.europa.eu/eudi/id/Excise"
+            ]
+          }
+        },
+        "required": [
+          "identifier",
+          "type"
+        ],
+        "examples": [
+          {
+            "type": "http://data.europa.eu/eudi/id/EUID",
+            "identifier": "FR-EUID-123456789"
+          }
+        ]
+      },
+      "MultiLangString": {
+        "type": "object",
+        "properties": {
+          "lang": {
+            "type": "string",
+            "description": "Language tag.",
+            "examples": [
+              "en"
+            ]
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lang",
+          "content"
+        ],
+        "examples": [
+          {
+            "lang": "en",
+            "content": "Open a bank account remotely."
+          }
+        ]
+      },
+      "IntendedUse": {
+        "type": "object",
+        "properties": {
+          "intendedUseIdentifier": {
+            "type": "string",
+            "description": "Registry-level unique identifier for the intended use."
+          },
+          "purpose": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MultiLangString"
+            }
+          },
+          "privacyPolicy": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Policy"
+            }
+          },
+          "credential": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Credential"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date",
+            "description": "Validity start date in YYYY-MM-DD format."
+          },
+          "revokedAt": {
+            "type": "string",
+            "format": "date",
+            "description": "End date for the validity of the intended use in YYYY-MM-DD format."
+          }
+        },
+        "required": [
+          "intendedUseIdentifier",
+          "purpose",
+          "privacyPolicy",
+          "credential",
+          "createdAt"
+        ],
+        "examples": [
+          {
+            "intendedUseIdentifier": "iu-account-opening",
+            "purpose": [
+              {
+                "lang": "en",
+                "content": "Open a bank account remotely."
+              },
+              {
+                "lang": "fr",
+                "content": "Ouvrir un compte bancaire à distance."
+              }
+            ],
+            "privacyPolicy": [
+              {
+                "type": "http://data.europa.eu/eudi/policy/privacy-statement",
+                "policyURI": "https://examplebank.eu/privacy/wallet/account-opening"
+              }
+            ],
+            "credential": [
+              {
+                "format": "dc+sd-jwt",
+                "meta": {
+                  "vct_values": [
+                    "https://example.eu/schema/pid"
+                  ]
+                },
+                "claim": [
+                  {
+                    "path": [
+                      "family_name"
+                    ]
+                  },
+                  {
+                    "path": [
+                      "given_name"
+                    ]
+                  },
+                  {
+                    "path": [
+                      "birth_date"
+                    ]
+                  },
+                  {
+                    "path": [
+                      "nationalities"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "createdAt": "2026-01-01"
+          }
+        ]
+      },
+      "Policy": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri",
+            "description": "Policy type URI.",
+            "enum": [
+              "http://data.europa.eu/eudi/policy/privacy-policy",
+              "http://data.europa.eu/eudi/policy/terms-and-conditions",
+              "http://data.europa.eu/eudi/policy/privacy-statement"
+            ]
+          },
+          "policyURI": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL where the policy is published."
+          }
+        },
+        "required": [
+          "type",
+          "policyURI"
+        ],
+        "examples": [
+          {
+            "type": "http://data.europa.eu/eudi/policy/privacy-policy",
+            "policyURI": "https://examplebank.eu/privacy"
+          }
+        ]
+      },
+      "Credential": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "description": "Credential format identifier.",
+            "examples": [
+              "dc+sd-jwt"
+            ]
+          },
+          "meta": {
+            "type": "object",
+            "description": "Additional grouping or type metadata defined per credential format.",
+            "additionalProperties": true
+          },
+          "claim": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            }
+          }
+        },
+        "required": [
+          "format",
+          "meta"
+        ],
+        "examples": [
+          {
+            "format": "dc+sd-jwt",
+            "meta": {
+              "vct": "https://example.eu/schema/pid"
+            },
+            "claim": [
+              {
+                "path": [
+                  "family_name"
+                ]
+              },
+              {
+                "path": [
+                  "given_name"
+                ]
+              },
+              {
+                "path": [
+                  "birth_date"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "Claim": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Non-empty path array of strings, nulls, or non-negative integers.",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "values": {
+            "type": "array",
+            "description": "Optional allowed values.",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "examples": [
+          {
+            "path": [
+              "org.iso.18013.5.1",
+              "age_over_18"
+            ]
+          }
+        ]
+      },
+      "LegalEntity": {
+        "type": "object",
+        "properties": {
+          "legalPerson": {
+            "$ref": "#/components/schemas/LegalPerson"
+          },
+          "naturalPerson": {
+            "$ref": "#/components/schemas/NaturalPerson"
+          },
+          "identifier": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "postalAddress": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^([A-Z]{2}|EU)$"
+          },
+          "email": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "phone": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "infoURI": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        },
+        "required": [
+          "country"
+        ],
+        "examples": [
+          {
+            "legalPerson": {
+              "legalName": [
+                "Autorité de supervision Exemple"
+              ]
+            },
+            "country": "FR",
+            "email": [
+              "contact@supervisor.example.fr"
+            ],
+            "infoURI": [
+              "https://supervisor.example.fr"
+            ]
+          }
+        ]
+      },
+      "LegalPerson": {
+        "type": "object",
+        "properties": {
+          "legalName": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "establishedBylaw": {
+            "type": "array",
+            "description": "Required if the entity is a public sector body responsible for authentic sources.",
+            "items": {
+              "$ref": "#/components/schemas/Law"
+            }
+          }
+        },
+        "required": [
+          "legalName"
+        ],
+        "examples": [
+          {
+            "legalName": [
+              "ExampleBank S.A."
+            ]
+          }
+        ]
+      },
+      "NaturalPerson": {
+        "type": "object",
+        "properties": {
+          "givenName": {
+            "type": "string"
+          },
+          "familyName": {
+            "type": "string"
+          },
+          "dateOfBirth": {
+            "type": "string",
+            "format": "date"
+          },
+          "placeOfBirth": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "givenName",
+          "familyName"
+        ],
+        "examples": [
+          {
+            "givenName": "Alice",
+            "familyName": "Martin",
+            "dateOfBirth": "1985-03-04",
+            "placeOfBirth": "Paris"
+          }
+        ]
+      },
+      "Law": {
+        "type": "object",
+        "properties": {
+          "lang": {
+            "type": "string",
+            "pattern": "^[a-z]{2}$",
+            "description": "Two-letter language code."
+          },
+          "legalBasis": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lang",
+          "legalBasis"
+        ],
+        "examples": [
+          {
+            "lang": "en",
+            "legalBasis": "Established under national banking supervision law."
+          }
+        ]
+      },
+      "RegisterError": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "PublishedWalletRelyingParty": {
+        "description": "A published registration record as returned by the Common Register API: the `WalletRelyingParty` snapshot taken when the latest create/edit application was accepted, without `postalAddress`, plus the extension properties `wrpId`, `organizationId` and `registrationCertificates`.",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WalletRelyingParty"
+          },
+          {
+            "type": "object",
+            "required": [
+              "wrpId",
+              "organizationId",
+              "registrationCertificates"
+            ],
+            "properties": {
+              "wrpId": {
+                "type": "string",
+                "description": "The WRP ID: the value of one of the record's identifiers (extension)."
+              },
+              "organizationId": {
+                "type": "string",
+                "description": "Organization ID recorded in the snapshot (extension)."
+              },
+              "registrationCertificates": {
+                "type": "array",
+                "readOnly": true,
+                "items": {
+                  "$ref": "#/components/schemas/RegistrationCertificate"
+                },
+                "description": "Recorded registration certificates, including revoked ones (extension)."
+              }
+            }
+          }
+        ]
+      },
+      "IntendedUseSubmission": {
+        "type": "object",
+        "properties": {
+          "intendedUseIdentifier": {
+            "type": "string",
+            "description": "Omit for new intended uses. In edit applications, include the identifier of an existing intended use to keep it (possibly modified); existing intended uses left out are ended."
+          },
+          "purpose": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MultiLangString"
+            }
+          },
+          "privacyPolicy": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Policy"
+            }
+          },
+          "credential": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Credential"
+            }
+          }
+        },
+        "required": [
+          "purpose",
+          "privacyPolicy",
+          "credential"
+        ],
+        "description": "An intended use as submitted in an application (without Registrar-provided data)."
+      },
+      "WalletRelyingPartySubmission": {
+        "type": "object",
+        "description": "Registration record data as submitted in create/edit applications: the APTITUDE `WalletRelyingParty` without the Registrar-provided `registryURI`, `intendedUseIdentifier` (for new intended uses), `createdAt` and `revokedAt`.",
+        "properties": {
+          "legalPerson": {
+            "$ref": "#/components/schemas/LegalPerson"
+          },
+          "naturalPerson": {
+            "$ref": "#/components/schemas/NaturalPerson"
+          },
+          "identifier": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "postalAddress": {
+            "type": "array",
+            "description": "Postal addresses of the legal entity. Registration view only; excluded from published API statements.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code, or EU for providers operating in the Union.",
+            "pattern": "^([A-Z]{2}|EU)$"
+          },
+          "email": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "phone": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "examples": [
+                "+33100000000"
+              ]
+            }
+          },
+          "infoURI": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "providerType": {
+            "type": "string",
+            "description": "Provider subtype. For WRP records, typically WalletRelyingParty.",
+            "examples": [
+              "WalletRelyingParty"
+            ]
+          },
+          "policy": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Policy"
+            }
+          },
+          "x5c": {
+            "type": "array",
+            "description": "X.509 certificate chains for provider services.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tradeName": {
+            "type": "string"
+          },
+          "supportURI": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "srvDescription": {
+            "type": "array",
+            "description": "Array of service descriptions, each being an array of localized strings.",
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/MultiLangString"
+              }
+            }
+          },
+          "intendedUse": {
+            "type": "array",
+            "description": "Required if the entity is not an intermediary.",
+            "items": {
+              "$ref": "#/components/schemas/IntendedUseSubmission"
+            }
+          },
+          "isPSB": {
+            "type": "boolean",
+            "description": "Whether the WRP is a public sector body."
+          },
+          "entitlement": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "providesAttestations": {
+            "type": "array",
+            "description": "Required if the entity is a PID or attestation provider.",
+            "items": {
+              "$ref": "#/components/schemas/Credential"
+            }
+          },
+          "supervisoryAuthority": {
+            "$ref": "#/components/schemas/LegalEntity"
+          },
+          "usesIntermediary": {
+            "type": "array",
+            "description": "If present, indicates designated intermediary entries. Only the subset identifier, tradeName, and registryURI is needed for each entry.",
+            "items": {
+              "$ref": "#/components/schemas/WalletRelyingPartyIntermediary"
+            }
+          },
+          "isIntermediary": {
+            "type": "boolean",
+            "description": "Whether the registered entity is a designated intermediary. Shall be false if usesIntermediary is present."
+          }
+        },
+        "required": [
+          "identifier",
+          "country",
+          "providerType",
+          "policy",
+          "supportURI",
+          "srvDescription",
+          "isPSB",
+          "entitlement",
+          "supervisoryAuthority",
+          "isIntermediary"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "legalPerson"
+            ]
+          },
+          {
+            "required": [
+              "naturalPerson"
+            ]
+          }
+        ],
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "isIntermediary"
+              ],
+              "properties": {
+                "isIntermediary": {
+                  "const": false
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "intendedUse"
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "entitlement"
+              ],
+              "properties": {
+                "entitlement": {
+                  "contains": {
+                    "enum": [
+                      "https://uri.etsi.org/19475/Entitlement/QEAA_Provider",
+                      "https://uri.etsi.org/19475/Entitlement/Non_Q_EAA_Provider",
+                      "https://uri.etsi.org/19475/Entitlement/PUB_EAA_Provider",
+                      "https://uri.etsi.org/19475/Entitlement/PID_Provider"
+                    ]
+                  }
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "providesAttestations"
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "usesIntermediary"
+              ]
+            },
+            "then": {
+              "properties": {
+                "isIntermediary": {
+                  "const": false
+                }
+              }
+            }
+          }
+        ]
+      },
+      "RegistrationRecord": {
+        "type": "object",
+        "required": [
+          "wrpId",
+          "organizationId",
+          "data",
+          "registrationCertificates",
+          "publishedAt"
+        ],
+        "description": "A published registration record, as seen by members of the controlling Organization (full data, including `postalAddress`).",
+        "properties": {
+          "wrpId": {
+            "type": "string",
+            "description": "The WRP ID: the value of one of the record's identifiers (extension)."
+          },
+          "organizationId": {
+            "type": "string",
+            "description": "Organization ID recorded in the snapshot (extension)."
+          },
+          "data": {
+            "$ref": "#/components/schemas/WalletRelyingParty"
+          },
+          "registrationCertificates": {
+            "type": "array",
+            "readOnly": true,
+            "items": {
+              "$ref": "#/components/schemas/RegistrationCertificate"
+            },
+            "description": "Recorded registration certificates, including revoked ones."
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RegistrationRecordPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RegistrationRecord"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  }
+}
