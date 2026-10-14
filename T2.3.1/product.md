@@ -1,9 +1,8 @@
 # Introduction
 
-This is the API provided by the Wallet-Relying-Party (WRP)
-Registration backend of the EUDI Wallet. This implements roles
-"Registration Service" and "Registrar" in the APTITUDE Onboarding
-Process.
+This document describes the services providing the Registration
+Service and the Registrar roles for a Wallet-Relying Party (WRP)
+according to the APTITUDE Onboarding Process.
 
 # High-level requirements / Use case scenarios
 
@@ -22,7 +21,6 @@ The API serves the following use cases:
       invited Representative must not belong to an Organization.
     - Edit their Representative data, which were entered during
       their registration.
-    - Register one or more WRPs.
 
 3. A Representative that belongs to an Organization can apply to:
 
@@ -67,12 +65,12 @@ functionality:
 
     - Registration record revocation: An existing WRP registration
       record is removed from the Register. The WRP must be one
-      that the application's Organization controls. All its WRPRCs
+      that the application's Organization controls. All its certificates
       must be revoked (see below).
 
     - Registration record edit: An existing WRP registration record is
       updated. The WRP must be one that the application's Organization
-      controls. Its WRPRCs must be updated (see below).
+      controls. Its certificates must be updated (see below).
 
    The published WRP registration record data must be stable in the
    absence of registration record edits and must come from a data
@@ -86,14 +84,14 @@ functionality:
    Registrar can then reject the application with a corresponding
    rejection reason.
 
-   Registration certificates (WRPRCs) are issued and revoked by the
-   Provider of WRPRC, not by this backend:
+   Registration certificates are issued and revoked by the Provider of
+   WRPRCs/WRPACs (SIROS Trust Services), not by this backend:
 
-    - A separate WRPRC is issued for each intended use of a published
-      registration record, only for WRPs that are legal persons and
-      where a WRPRC is required (CIR 2025/848, Article 8).
-    - WRPRCs are issued after the create/edit application has been
-      accepted, so that they carry the intended-use identifiers
+    - A separate set of certificates is issued for each intended use
+      of a published registration record, only for WRPs that are legal
+      persons and where a WRPRC is required (CIR 2025/848, Article 8).
+    - Certificates are issued after the create/edit application has
+      been accepted, so that they carry the intended-use identifiers
       assigned by the Register.
     - After an accepted edit, new intended uses get new certificates,
       modified uses get new certificates and their previous ones are
@@ -102,12 +100,14 @@ functionality:
       other WRP data change, all certificates are revoked and new ones
       are issued in their place.
     - When a registration record is removed (by an accepted revocation
-      application or by tool 4 below), all its WRPRCs are revoked.
+      application or by tool 4 below), all its certificates are
+      revoked.
 
-   The Registrar records issued WRPRCs, and their revocations, with
-   tool 10 below. Recorded WRPRCs are visible in the published WRP
-   registration record data. Recording WRPRCs is not a registration
-   record edit: it does not change the reviewed data snapshot.
+   The Registrar records issued certificates, and their revocations,
+   with tool 10 below. Recorded certificates are visible in the
+   published WRP registration record data. Recording certificates is
+   not a registration record edit: it does not change the reviewed
+   data snapshot.
 
 2. Transition an application from state "pending" to "rejected". No
    further state transitions are possible on this application. The
@@ -118,7 +118,7 @@ functionality:
    further state transitions are possible on this application.
 
 4. Revoke an existing published WRP registration record. All related
-   WRPRCs must then be revoked (see tool 1).
+   certificates must then be revoked (see tool 1).
 
 5. View all logs (such as all application transitions).
 
@@ -139,10 +139,10 @@ functionality:
    Representative can be invited again to the organization by another
    Representative or by the corresponding CLI tool.
 
-10. Record WRPRCs for a published WRP registration record: add a
-    WRPRC issued by the Provider of WRPRC for one of its intended uses
-    (identified by its intended-use identifier), or mark a recorded
-    WRPRC as revoked.
+10. Record certificates for a published WRP registration record: add a
+    certificate issued by the Provider of WRPRCs/WRPACs for one of its
+    intended uses (identified by its intended-use identifier), or mark
+    a recorded certificate as revoked.
 
 # State transitions
 
@@ -197,8 +197,8 @@ create application -> published ---+--> removed
 * All actions related to Representatives are logged: Representative
   registration, login (de)activation, Representative data edits.
 
-* All WRPRC changes (such as certificate creation/revocation) are
-  logged.
+* All certificate changes (such as certificate creation/revocation)
+  are logged.
 
 ## Notifications
 
@@ -271,10 +271,13 @@ create application -> published ---+--> removed
   action that includes an Organization, the database must be consulted
   to ensure that the Representative is a member of the Organization.
 
-* The name/email information is assumed to be authoritative in the
-  authentication service, not in the database. The two must be
-  synchronized on Representative data edits and on every token
-  introspection.
+* The name/email information are authoritative in the authentication
+  service, not in the database. The two must be synchronized on
+  Representative data edits and on every token introspection.
+
+* There is a list of all Organizations participating in APTITUDE,
+  available to the registration services. Only Organizations named in
+  this list can be onboarded.
 
 * Representative registration includes email validation.
 
@@ -340,6 +343,9 @@ create application -> published ---+--> removed
 * It is out of scope how registration certificate issuance/revocation
   is performed (automated or manual).
 
+* WRPRC/WRPAC issuance and revocation happens via the SIROS Trust
+  Services.
+
 # References
 
 * CIR 2025/848: https://eur-lex.europa.eu/eli/reg_impl/2025/848/oj
@@ -348,5 +354,6 @@ create application -> published ---+--> removed
 * Common Set of Relying Party Information to be Registered (TS6): https://github.com/eu-digital-identity-wallet/eudi-doc-standards-and-technical-specifications/blob/main/docs/technical-specifications/ts6-common-set-of-rp-information-to-be-registered.md
 * APTITUDE Onboarding Process: https://aptitude-consortium.github.io/wp2-trust-specifications/v1.0/sections/onboarding-process/
 * APTITUDE Common Register API: https://aptitude-consortium.github.io/wp2-trust-specifications/v1.0/api/register-api/
-* APTITUDE Reference Data Schema: https://aptitude-consortium.github.io/wp2-trust-specifications/v1.0/sections/trust-artifacts/#register-data-schema
+* APTITUDE Register Data Schema: https://aptitude-consortium.github.io/wp2-trust-specifications/v1.0/sections/trust-artifacts/#register-data-schema
 * ETSI TS 119 475 V1.2.1, "Electronic Signatures and Trust Infrastructures (ESI); Relying party attributes supporting EUDI Wallet user's authorization decisions": https://www.etsi.org/deliver/etsi_ts/119400_119499/119475/01.02.01_60/ts_119475v010201p.pdf
+* SIROS Trust Services: https://github.com/APTITUDE-Consortium/aptitude-wp2-deliverables/pull/79/changes
